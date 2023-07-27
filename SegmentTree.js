@@ -1,105 +1,80 @@
 class SegmentNode {
-    constructor(startIdx, endIdx, val) {
-        this.startIdx = startIdx
-        this.endIdx = endIdx
+    constructor(l, r, val) {
+        this.l = l
+        this.r = r
         this.val = val
         this.lazy = 0
     }
 }
 
 class SegmentTree {
-    static getPipeLength(leaveCount) {
-        return (1 << (Math.ceil(Math.log2(leaveCount)) + 1)) - 1
-    }
-    static getChildRange(startIdx, endIdx) {
-        const mid = (startIdx + endIdx) >> 1
-        return [
-            [startIdx, mid],
-            [mid + 1, endIdx]
-        ]
-    }
-    static getChildIdx(curIdx) {
-        return [
-            (curIdx << 1) + 1,
-            (curIdx << 1) + 2
-        ]
+    constructor(
+        arr,
+        mergeVal,
+        updateValByLazy,
+        mergeLazy,
+    ) {
+        this.arr = arr
+        this.mergeVal = mergeVal
+        this.updateValByLazy = updateValByLazy
+        this.mergeLazy = mergeLazy
+        this.build()
     }
 
-    constructor (arr, mergeFunc, mergeLazyByRange) {
-        this.mergeFunc = mergeFunc
-        this.mergeLazyByRange = mergeLazyByRange
-        this.pipe = new Array(SegmentTree.getPipeLength(arr.length)).fill(null)
-        this.build(arr)
-    }
-
-    mergeLazy(cur, lazy) {
-        cur.val = this.mergeFunc(cur.val, this.mergeLazyByRange(lazy, cur.endIdx - cur.startIdx + 1))
-        cur.lazy = this.mergeFunc(cur.lazy, lazy)
-    }
-
-    build(arr, pipeIdx = 0, arrIdx = 0, startIdx = 0, endIdx = arr.length - 1) {
-        if (startIdx === endIdx) {
-            if (arrIdx >= arr.length) return arrIdx
-            this.pipe[pipeIdx] = new SegmentNode(startIdx, endIdx, arr[arrIdx])
-            return arrIdx + 1
+    build (idx = 0, l = 0, r = this.arr.length - 1) {
+        if (!this.tree) {
+            this.tree = new Array((1 << (Math.ceil(Math.log2(this.arr.length)) + 1)) - 1).fill(null)
         }
-        const [l, r] = SegmentTree.getChildIdx(pipeIdx)
-        const ranges = SegmentTree.getChildRange(startIdx, endIdx)
-        arrIdx = this.build(arr, l, arrIdx, ...ranges[0])
-        arrIdx = this.build(arr, r, arrIdx, ...ranges[1])
-        this.pipe[pipeIdx] = new SegmentNode(
-            startIdx,
-            endIdx,
-            this.mergeFunc(this.pipe[l].val, this.pipe[r].val)
-        )
-        return arrIdx
-    }
-
-    query(startIdx, endIdx, pipeIdx = 0, lazy = 0) {
-        const cur = this.pipe[pipeIdx]
-        this.mergeLazy(cur, lazy)
-        if (startIdx > cur.endIdx || endIdx < cur.startIdx) return null
-        if (startIdx <= cur.startIdx && endIdx >= cur.endIdx) {
-            return cur.val
-        }
-        const [l, r] = SegmentTree.getChildIdx(pipeIdx)
-        const lRes =  this.query(startIdx, endIdx, l, cur.lazy)
-        const rRes = this.query(startIdx, endIdx, r, cur.lazy)
-        cur.lazy = 0
-        if (lRes !== null && rRes !== null) return this.mergeFunc(lRes, rRes)
-        else if (lRes !== null) return lRes
-        else if (rRes !== null) return rRes
-        return null
-    }
-
-    modify(val, startIdx, endIdx, pipeIdx = 0) {
-        const cur = this.pipe[pipeIdx]
-        if (startIdx > cur.endIdx || endIdx < cur.startIdx) return
-        if (startIdx <= cur.startIdx && endIdx >= cur.endIdx) {
-            this.mergeLazy(cur, val)
+        if (l === r) {
+            this.tree[idx] = new SegmentNode(l, r, this.arr[l])
             return
         }
-        const [l, r] = SegmentTree.getChildIdx(pipeIdx)
-        this.modify(val, startIdx, endIdx, l)
-        this.modify(val, startIdx, endIdx, r)
-        cur.val = this.mergeFunc(this.pipe[l].val, this.pipe[r].val)
+        this.build((idx << 1) + 1, l, (l + r) >> 1)
+        this.build((idx << 1) + 2, ((l + r) >> 1) + 1, r)
+        this.tree[idx] = new SegmentNode(l, r, this.mergeVal(
+            this.tree[(idx << 1) + 1].val,
+            this.tree[(idx << 1) + 2].val
+        ))
+    }
+
+    pushDown (idx) {
+        const cur = this.tree[idx]
+        if (!cur) return
+        [this.tree[(idx << 1) + 1], this.tree[(idx << 1) + 2]].forEach(c => {
+            if (!c) return
+            c.val = this.updateValByLazy(c, cur.lazy)
+            c.lazy = this.mergeLazy(c, cur.lazy)
+        })
+        cur.lazy = 0
+    }
+
+    modify (lazy, l, r, idx = 0) {
+        const cur = this.tree[idx]
+        if (cur.l > r || cur.r < l) return
+        this.pushDown(idx)
+        if (cur.l >= l && cur.r <= r) {
+            cur.val = this.updateValByLazy(cur, lazy)
+            cur.lazy = lazy
+            return
+        }
+        this.modify(lazy, l, r, (idx << 1) + 1)
+        this.modify(lazy, l, r, (idx << 1) + 2)
+        this.tree[idx].val = this.mergeVal(
+            this.tree[(idx << 1) + 1].val,
+            this.tree[(idx << 1) + 2].val
+        )
+    }
+
+    query (l, r, idx = 0) {
+        const cur = this.tree[idx]
+        if (cur.l > r || cur.r < l) return
+        this.pushDown(idx)
+        if (cur.l >= l && cur.r <= r) return cur.val
+        return this.mergeVal(
+            this.query(l, r, (idx << 1) + 1),
+            this.query(l, r, (idx << 1) + 2)
+        )
     }
 }
 
-const st = new SegmentTree(
-    new Array(8).fill(0).map((_, i) => i + 1),
-    (...args) => args.reduce((a, b) => a + b, 0),
-    (lazy, range) => lazy * range
-)
-
-console.log(st.query(2, 7))
-st.modify(1, 2, 7)
-console.log(st.query(2, 7))
-st.modify(1, 0, 7)
-// console.dir(st.pipe, { depth: 10 })
-console.log(st.query(2, 7))
-console.log(st.query(1, 7))
-st.modify(-1, 0, 7)
-console.log(st.query(2, 7))
-st.modify(-1, 2, 7)
-console.log(st.query(2, 7))
+exports.SegmentTree = SegmentTree
